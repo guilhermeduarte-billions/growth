@@ -18,6 +18,7 @@ import type {
 import { RateLimitError } from "../errors.js";
 import { CleanupManager } from "../utils/cleanup-manager.js";
 
+const SERVER_VERSION = "1.3.0";
 const FOLLOW_UP_REMINDER =
   "\n\nEXTREMELY IMPORTANT: Is that ALL you need to know? You can always ask another question using the same session ID! Think about it carefully: before you reply to the user, review their original request and this answer. If anything is still unclear or missing, ask me another question first.";
 
@@ -33,6 +34,37 @@ export class ToolHandlers {
     this.sessionManager = sessionManager;
     this.authManager = authManager;
     this.library = library;
+  }
+
+  private resolveNotebookUrl(notebook_id?: string, notebook_url?: string): {
+    url: string;
+    source: "argument" | "library" | "active";
+    notebookName?: string;
+  } {
+    if (notebook_url) {
+      return { url: notebook_url, source: "argument" };
+    }
+
+    if (notebook_id) {
+      const notebook = this.library.incrementUseCount(notebook_id);
+      if (!notebook) {
+        throw new Error(`Notebook not found in library: ${notebook_id}`);
+      }
+      return { url: notebook.url, source: "library", notebookName: notebook.name };
+    }
+
+    const active = this.library.getActiveNotebook();
+    if (active) {
+      const notebook = this.library.incrementUseCount(active.id);
+      if (!notebook) {
+        throw new Error(`Active notebook not found: ${active.id}`);
+      }
+      return { url: notebook.url, source: "active", notebookName: notebook.name };
+    }
+
+    throw new Error(
+      "No notebook URL provided. Pass notebook_url, pass notebook_id, or select an active notebook first."
+    );
   }
 
   /**
@@ -173,6 +205,306 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
+    }
+  }
+
+  /**
+   * Handle content generation tools (study_guide, briefing_doc, faq, timeline, audio_overview)
+   */
+  async handleGenerateContent(
+    args: {
+      type: "audio_overview" | "study_guide" | "briefing_doc" | "faq" | "timeline" | "presentation";
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+      customization?: { focus?: string; style?: string };
+    },
+    sendProgress?: ProgressCallback
+  ): Promise<ToolResult<{ status: string; content?: string; audio_url?: string; message?: string }>> {
+    const { type, notebook_id, notebook_url, show_browser, customization } = args;
+
+    log.info(`🔧 [TOOL] generate_${type} called`);
+
+    try {
+      let resolvedNotebookUrl = notebook_url;
+
+      if (!resolvedNotebookUrl && notebook_id) {
+        const notebook = this.library.incrementUseCount(notebook_id);
+        if (!notebook) throw new Error(`Notebook not found in library: ${notebook_id}`);
+        resolvedNotebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!resolvedNotebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          const notebook = this.library.incrementUseCount(active.id);
+          if (!notebook) throw new Error(`Active notebook not found: ${active.id}`);
+          resolvedNotebookUrl = notebook.url;
+          log.info(`  Using active notebook: ${notebook.name}`);
+        }
+      }
+
+      if (!resolvedNotebookUrl) {
+        throw new Error(
+          "No notebook URL provided. Add a notebook via add_notebook or select one with select_notebook."
+        );
+      }
+
+      await sendProgress?.("Getting or creating browser session...", 1, 6);
+
+      const originalConfig = { ...CONFIG };
+      if (show_browser !== undefined) {
+        (CONFIG as any).headless = !show_browser;
+      }
+
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          undefined,
+          resolvedNotebookUrl,
+          show_browser
+        );
+
+        const result = await session.generateContent(type, sendProgress, customization);
+
+        log.success(`✅ [TOOL] generate_${type} completed`);
+        return { success: true, data: result };
+      } finally {
+        Object.assign(CONFIG, originalConfig);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] generate_${type} failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Handle source upload tool.
+   */
+  async handleUploadSource(
+    args: {
+      notebook_id?: string;
+      notebook_url?: string;
+      file_path: string;
+      source_title: string;
+      show_browser?: boolean;
+      browser_options?: BrowserOptions;
+    },
+    sendProgress?: ProgressCallback
+  ): Promise<ToolResult<{ status: string; notebook_url: string; source_title: string; uploaded_at: string; message?: string }>> {
+    const { notebook_id, notebook_url, file_path, source_title, show_browser, browser_options } = args;
+
+    log.info(`🔧 [TOOL] notebooklm_upload_source called`);
+    log.info(`  File path: ${file_path}`);
+    log.info(`  Source title: ${source_title}`);
+
+    try {
+      let resolvedNotebookUrl = notebook_url;
+
+      if (!resolvedNotebookUrl && notebook_id) {
+        const notebook = this.library.incrementUseCount(notebook_id);
+        if (!notebook) throw new Error(`Notebook not found in library: ${notebook_id}`);
+        resolvedNotebookUrl = notebook.url;
+        log.info(`  Resolved notebook: ${notebook.name}`);
+      } else if (!resolvedNotebookUrl) {
+        const active = this.library.getActiveNotebook();
+        if (active) {
+          const notebook = this.library.incrementUseCount(active.id);
+          if (!notebook) throw new Error(`Active notebook not found: ${active.id}`);
+          resolvedNotebookUrl = notebook.url;
+          log.info(`  Using active notebook: ${notebook.name}`);
+        }
+      }
+
+      if (!resolvedNotebookUrl) {
+        throw new Error(
+          "No notebook URL provided. Pass notebook_url, pass notebook_id, or select an active notebook first."
+        );
+      }
+
+      await sendProgress?.("Getting or creating browser session...", 1, 6);
+
+      const originalConfig = { ...CONFIG };
+      const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+
+      let overrideHeadless: boolean | undefined = undefined;
+      if (show_browser !== undefined) {
+        overrideHeadless = show_browser;
+      } else if (browser_options?.show !== undefined) {
+        overrideHeadless = browser_options.show;
+      } else if (browser_options?.headless !== undefined) {
+        overrideHeadless = !browser_options.headless;
+      }
+
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          undefined,
+          resolvedNotebookUrl,
+          overrideHeadless
+        );
+
+        const result = await session.uploadSource(file_path, source_title, sendProgress);
+
+        log.success(`✅ [TOOL] notebooklm_upload_source completed`);
+        return { success: true, data: result };
+      } finally {
+        Object.assign(CONFIG, originalConfig);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] notebooklm_upload_source failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async handleSourceAdd(
+    args: {
+      notebook_id?: string;
+      notebook_url?: string;
+      source_type: "url" | "youtube" | "text" | "file";
+      url?: string;
+      text?: string;
+      file_path?: string;
+      title?: string;
+      wait?: boolean;
+      show_browser?: boolean;
+      browser_options?: BrowserOptions;
+    },
+    sendProgress?: ProgressCallback
+  ): Promise<ToolResult<{
+    status: string;
+    source_type: string;
+    notebook_url: string;
+    source_title?: string;
+    added_at: string;
+    message?: string;
+  }>> {
+    const {
+      notebook_id,
+      notebook_url,
+      source_type,
+      url,
+      text,
+      file_path,
+      title,
+      wait = true,
+      show_browser,
+      browser_options,
+    } = args;
+
+    log.info(`🔧 [TOOL] source_add called`);
+    log.info(`  Source type: ${source_type}`);
+
+    try {
+      if ((source_type === "url" || source_type === "youtube") && !url) {
+        throw new Error(`url is required when source_type=${source_type}`);
+      }
+      if (source_type === "text" && !text) {
+        throw new Error("text is required when source_type=text");
+      }
+      if (source_type === "file" && !file_path) {
+        throw new Error("file_path is required when source_type=file");
+      }
+
+      const resolved = this.resolveNotebookUrl(notebook_id, notebook_url);
+      if (resolved.notebookName) {
+        log.info(`  Resolved notebook: ${resolved.notebookName}`);
+      }
+
+      await sendProgress?.("Getting or creating browser session...", 1, 6);
+
+      const originalConfig = { ...CONFIG };
+      const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+
+      let overrideHeadless: boolean | undefined = undefined;
+      if (show_browser !== undefined) {
+        overrideHeadless = show_browser;
+      } else if (browser_options?.show !== undefined) {
+        overrideHeadless = browser_options.show;
+      } else if (browser_options?.headless !== undefined) {
+        overrideHeadless = !browser_options.headless;
+      }
+
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          undefined,
+          resolved.url,
+          overrideHeadless
+        );
+
+        const result = await session.addSource(
+          { source_type, url, text, file_path, title, wait },
+          sendProgress
+        );
+
+        log.success(`✅ [TOOL] source_add completed`);
+        return { success: true, data: result };
+      } finally {
+        Object.assign(CONFIG, originalConfig);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] source_add failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async handleSourceList(
+    args: {
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+      browser_options?: BrowserOptions;
+    },
+    sendProgress?: ProgressCallback
+  ): Promise<ToolResult<{
+    status: string;
+    notebook_url: string;
+    count: number;
+    sources: Array<{ title: string; status?: string; raw_text?: string }>;
+    message?: string;
+  }>> {
+    const { notebook_id, notebook_url, show_browser, browser_options } = args;
+    log.info(`🔧 [TOOL] source_list called`);
+
+    try {
+      const resolved = this.resolveNotebookUrl(notebook_id, notebook_url);
+      if (resolved.notebookName) {
+        log.info(`  Resolved notebook: ${resolved.notebookName}`);
+      }
+
+      await sendProgress?.("Getting or creating browser session...", 1, 4);
+
+      const originalConfig = { ...CONFIG };
+      const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+      Object.assign(CONFIG, effectiveConfig);
+
+      let overrideHeadless: boolean | undefined = undefined;
+      if (show_browser !== undefined) {
+        overrideHeadless = show_browser;
+      } else if (browser_options?.show !== undefined) {
+        overrideHeadless = browser_options.show;
+      } else if (browser_options?.headless !== undefined) {
+        overrideHeadless = !browser_options.headless;
+      }
+
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          undefined,
+          resolved.url,
+          overrideHeadless
+        );
+        const result = await session.listSources(sendProgress);
+        log.success(`✅ [TOOL] source_list completed (${result.count} sources)`);
+        return { success: true, data: result };
+      } finally {
+        Object.assign(CONFIG, originalConfig);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] source_list failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -384,6 +716,99 @@ export class ToolHandlers {
         success: false,
         error: errorMessage,
       };
+    }
+  }
+
+  async handleDoctor(): Promise<
+    ToolResult<{
+      status: "ok" | "warning";
+      checks: Array<{ name: string; ok: boolean; detail: string; fix?: string }>;
+      summary: {
+        server_version: string;
+        authenticated: boolean;
+        active_sessions: number;
+        max_sessions: number;
+        profile_headless: boolean;
+        data_dir: string;
+        config_dir: string;
+      };
+    }>
+  > {
+    log.info(`🔧 [TOOL] doctor called`);
+
+    try {
+      const statePath = await this.authManager.getValidStatePath();
+      const authenticated = statePath !== null;
+      const stats = this.sessionManager.getStats();
+
+      const checks = [
+        {
+          name: "version",
+          ok: true,
+          detail: `notebooklm-mcp ${SERVER_VERSION}`,
+        },
+        {
+          name: "authentication",
+          ok: authenticated,
+          detail: authenticated
+            ? `Valid auth state found at ${statePath}`
+            : "No valid saved auth state found",
+          fix: authenticated ? undefined : "Run setup_auth, or re_auth if switching Google accounts.",
+        },
+        {
+          name: "notebook_library",
+          ok: this.library.listNotebooks().length > 0,
+          detail: `${this.library.listNotebooks().length} notebooks saved in the local library`,
+          fix:
+            this.library.listNotebooks().length > 0
+              ? undefined
+              : "Run add_notebook with a shared NotebookLM URL before using library-based workflows.",
+        },
+        {
+          name: "session_capacity",
+          ok: stats.active_sessions <= stats.max_sessions,
+          detail: `${stats.active_sessions}/${stats.max_sessions} sessions active`,
+          fix:
+            stats.active_sessions <= stats.max_sessions
+              ? undefined
+              : "Close idle sessions with close_session or restart the MCP server.",
+        },
+        {
+          name: "browser_mode",
+          ok: true,
+          detail: CONFIG.headless
+            ? "Browser runs headless by default"
+            : "Browser is visible by default",
+        },
+        {
+          name: "data_paths",
+          ok: true,
+          detail: `dataDir=${CONFIG.dataDir}; configDir=${CONFIG.configDir}`,
+        },
+      ];
+
+      const hasWarnings = checks.some((check) => !check.ok);
+
+      return {
+        success: true,
+        data: {
+          status: hasWarnings ? "warning" : "ok",
+          checks,
+          summary: {
+            server_version: SERVER_VERSION,
+            authenticated,
+            active_sessions: stats.active_sessions,
+            max_sessions: stats.max_sessions,
+            profile_headless: CONFIG.headless,
+            data_dir: CONFIG.dataDir,
+            config_dir: CONFIG.configDir,
+          },
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] doctor failed: ${errorMessage}`);
+      return { success: false, error: errorMessage };
     }
   }
 

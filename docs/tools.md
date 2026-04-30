@@ -4,16 +4,28 @@
 - `ask_question`
   - Parameters: `question` (string, required), optional `session_id`, `notebook_id`, `notebook_url`, `show_browser`.
   - Returns NotebookLM's answer plus the follow-up reminder.
+- `source_add`
+  - Parameters: `source_type` (`url`, `youtube`, `text`, `file`), optional `notebook_id`, `notebook_url`, `title`, `wait`, `show_browser`.
+  - Adds URL/YouTube/text/file sources to the selected NotebookLM notebook.
+- `source_list`
+  - Parameters: optional `notebook_id`, `notebook_url`, `show_browser`.
+  - Reads the visible source list/status from the NotebookLM UI.
 - `list_sessions`, `close_session`, `reset_session`
   - Inspect or manage active browser sessions.
 - `get_health`
   - Summaries auth status, active sessions, and configuration.
+- `doctor`
+  - Runs a higher-signal diagnostic check for auth, library, sessions, browser mode, and local data paths.
 - `setup_auth`
   - Opens the persistent Chrome profile so you can log in manually.
 - `re_auth`
   - Switch to a different Google account or re-authenticate.
   - Use when NotebookLM rate limit is reached (50 queries/day for free accounts).
   - Closes all sessions, clears auth data, and opens browser for fresh login.
+- `notebooklm_upload_source`
+  - Parameters: `file_path` and `source_title` (required), optional `notebook_id`, `notebook_url`, `show_browser`.
+  - Uploads a local file into the target NotebookLM notebook as a new source.
+  - Use for generated Markdown/PDF/text digests that should ground future NotebookLM answers.
 
 ### Notebook library
 - `add_notebook` – Safe conversational add; expects confirmation before writing.

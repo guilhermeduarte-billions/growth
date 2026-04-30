@@ -48,6 +48,8 @@ import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG } from "./config.js";
 import { log } from "./utils/logger.js";
 
+const SERVER_VERSION = "1.3.0";
+
 /**
  * Main MCP Server Class
  */
@@ -66,7 +68,7 @@ class NotebookLMMCPServer {
     this.server = new Server(
       {
         name: "notebooklm-mcp",
-        version: "1.1.0",
+        version: SERVER_VERSION,
       },
       {
         capabilities: {
@@ -104,7 +106,7 @@ class NotebookLMMCPServer {
 
     const activeSettings = this.settingsManager.getEffectiveSettings();
     log.info("🚀 NotebookLM MCP Server initialized");
-    log.info(`  Version: 1.1.0`);
+    log.info(`  Version: ${SERVER_VERSION}`);
     log.info(`  Node: ${process.version}`);
     log.info(`  Platform: ${process.platform}`);
     log.info(`  Profile: ${activeSettings.profile} (${this.toolDefinitions.length} tools active)`);
@@ -249,6 +251,10 @@ class NotebookLMMCPServer {
             result = await this.toolHandlers.handleGetHealth();
             break;
 
+          case "doctor":
+            result = await this.toolHandlers.handleDoctor();
+            break;
+
           case "setup_auth":
             result = await this.toolHandlers.handleSetupAuth(
               args as { show_browser?: boolean },
@@ -266,6 +272,89 @@ class NotebookLMMCPServer {
           case "cleanup_data":
             result = await this.toolHandlers.handleCleanupData(
               args as { confirm: boolean }
+            );
+            break;
+
+          case "notebooklm_upload_source":
+            result = await this.toolHandlers.handleUploadSource(
+              args as {
+                notebook_id?: string;
+                notebook_url?: string;
+                file_path: string;
+                source_title: string;
+                show_browser?: boolean;
+              },
+              sendProgress
+            );
+            break;
+
+          case "source_add":
+            result = await this.toolHandlers.handleSourceAdd(
+              args as {
+                notebook_id?: string;
+                notebook_url?: string;
+                source_type: "url" | "youtube" | "text" | "file";
+                url?: string;
+                text?: string;
+                file_path?: string;
+                title?: string;
+                wait?: boolean;
+                show_browser?: boolean;
+              },
+              sendProgress
+            );
+            break;
+
+          case "source_list":
+            result = await this.toolHandlers.handleSourceList(
+              args as {
+                notebook_id?: string;
+                notebook_url?: string;
+                show_browser?: boolean;
+              },
+              sendProgress
+            );
+            break;
+
+          case "generate_audio_overview":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "audio_overview", ...(args as any) },
+              sendProgress
+            );
+            break;
+
+          case "generate_study_guide":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "study_guide", ...(args as any) },
+              sendProgress
+            );
+            break;
+
+          case "generate_briefing_doc":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "briefing_doc", ...(args as any) },
+              sendProgress
+            );
+            break;
+
+          case "generate_faq":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "faq", ...(args as any) },
+              sendProgress
+            );
+            break;
+
+          case "generate_timeline":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "timeline", ...(args as any) },
+              sendProgress
+            );
+            break;
+
+          case "generate_presentation":
+            result = await this.toolHandlers.handleGenerateContent(
+              { type: "presentation", ...(args as any) },
+              sendProgress
             );
             break;
 

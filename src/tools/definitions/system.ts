@@ -14,6 +14,17 @@ export const systemTools: Tool[] = [
     },
   },
   {
+    name: "doctor",
+    description:
+      "Run diagnostics for the NotebookLM MCP server. Checks package/server version, auth state, " +
+      "configured paths, tool profile, browser/session settings, and active sessions. " +
+      "Use this before deeper troubleshooting or after auth/source operations fail.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
     name: "setup_auth",
     description:
       "Google authentication for NotebookLM access - opens a browser window for manual login to your Google account. " +

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-30
+
+### Added
+- **Source Management Upgrade** - Added tools to manage NotebookLM sources from MCP
+  - `source_add` adds URL, YouTube, pasted text, and local file sources
+  - `source_list` reads the visible NotebookLM source list and processing status
+  - `notebooklm_upload_source` remains available for direct local file uploads
+
+- **Doctor Diagnostics** - Added `doctor` tool for higher-signal troubleshooting
+  - Checks auth state, local library, active sessions, browser mode, and data paths
+  - Reports the MCP server version in diagnostic output
+
+### Changed
+- **Standard Tool Profile** - Includes source management and diagnostics tools
+- **Documentation** - Updated tool docs and local V4 guide with the new source workflow
+- **Versioning** - Bumped package metadata and MCP server version to `1.3.0`
+
 ## [1.2.0] - 2025-11-21
 
 ### Added

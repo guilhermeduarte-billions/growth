@@ -26,9 +26,9 @@ ENV PATCHRIGHT_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 COPY . .
-RUN npm run build
+RUN npm run build && npm prune --omit=dev
 
 EXPOSE 3100
 

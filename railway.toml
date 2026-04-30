@@ -4,8 +4,3 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 restartPolicyType = "always"
-healthcheckPath = "/health"
-healthcheckTimeout = 60
-
-[[volumes]]
-mountPath = "/root/.local/share/notebooklm-mcp"

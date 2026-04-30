@@ -30,8 +30,6 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-VOLUME ["/root/.local/share/notebooklm-mcp"]
-
 EXPOSE 3100
 
 CMD ["npx", "supergateway", "--stdio", "node dist/index.js", "--port", "3100", "--host", "0.0.0.0"]

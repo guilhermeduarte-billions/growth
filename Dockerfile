@@ -32,4 +32,4 @@ RUN npm run build && npm prune --omit=dev
 
 EXPOSE 3100
 
-CMD ["npx", "supergateway", "--stdio", "node dist/index.js", "--port", "3100", "--host", "0.0.0.0"]
+CMD ["npx", "supergateway", "--stdio", "node dist/index.js", "--port", "3100", "--host", "0.0.0.0", "--path", "/mcp"]
